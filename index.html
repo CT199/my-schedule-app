@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工程排程系統 (最終單機版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+    
+    <style>
+        body { font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; background-color: #f8fafc; }
+        
+        /* 拖曳物件樣式 */
+        .draggable-source { 
+            cursor: grab; 
+            transition: all 0.2s; 
+            border-left-width: 6px; 
+        }
+        .draggable-source:active { cursor: grabbing; }
+        .draggable-source:hover { transform: translateX(4px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        
+        /* 編輯模式高亮 */
+        .editing-mode { border: 2px solid #f59e0b; background-color: #fffbeb; }
+
+        /* 顏色選擇器優化 */
+        .color-radio:checked + label { ring: 2px; ring-offset: 2px; ring-color: #64748b; transform: scale(1.1); }
+
+        /* 列印時的樣式 */
+        @media print {
+            .no-print { display: none !important; }
+            .print-only-header { display: block !important; text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 20px; }
+            #calendar-wrapper { width: 100% !important; height: auto !important; overflow: visible !important; }
+            body { background: white; }
+            -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        }
+        .print-only-header { display: none; }
+    </style>
+</head>
+<body class="h-screen flex flex-col text-slate-800 overflow-hidden">
+
+    <header class="bg-slate-900 text-white p-3 shadow-lg flex justify-between items-center flex-shrink-0 z-20">
+        <div class="flex items-center gap-3">
+            <h1 class="text-xl font-bold tracking-wide">🚧 工程排程管理系統</h1>
+            <span class="text-xs bg-blue-600 px-2 py-0.5 rounded text-white opacity-90">單機版</span>
+        </div>
+        <div class="text-right text-sm">
+            <div class="text-slate-400 text-xs">距離 2026 農曆年 (2/17)</div>
+            <div class="font-bold text-yellow-400 text-lg">
+                剩餘 <span id="countdown-days" class="font-mono text-2xl">0</span> 個工作日
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <aside class="no-print w-[350px] bg-white border-r border-slate-300 flex flex-col shadow-[4px_0_15px_rgba(0,0,0,0.05)] z-10">
+            
+            <div id="form-container" class="p-4 bg-slate-50 border-b border-slate-200">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 id="form-title" class="text-base font-bold text-slate-700 flex items-center gap-2">
+                        ✏️ 新增案件資料
+                    </h2>
+                    <button id="cancel-edit-btn" onclick="resetForm()" class="hidden text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded transition">取消編輯</button>
+                </div>
+
+                <input type="hidden" id="input-id"> <div class="mb-3">
+                    <label class="block text-xs text-slate-500 mb-1 font-bold">案件名稱 (必填)</label>
+                    <input type="text" id="input-title" placeholder="例如：松竹路裝修工程" 
+                           class="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-sm"
+                           onkeypress="if(event.key === 'Enter') saveTask()">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 mb-3">
+                    <div>
+                        <label class="block text-[10px] text-slate-500 mb-1">案件類型</label>
+                        <select id="input-category" class="w-full p-2 border border-slate-300 rounded text-sm bg-white focus:border-blue-500 outline-none">
+                            <option value="可安排">✅ 可安排</option>
+                            <option value="等待現場">⏳ 等待現場</option>
+                            <option value="事先拆除">🔨 事先拆除</option>
+                            <option value="維修件">🔧 維修件</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-1">
+                        <div class="w-1/2">
+                            <label class="block text-[10px] text-slate-500 mb-1">天數</label>
+                            <input type="number" id="input-days" value="1" step="0.5" min="0.5" class="w-full p-2 border border-slate-300 rounded text-center text-sm focus:border-blue-500 outline-none">
+                        </div>
+                        <div class="w-1/2">
+                            <label class="block text-[10px] text-slate-500 mb-1">人數</label>
+                            <input type="number" id="input-workers" value="2" min="1" class="w-full p-2 border border-slate-300 rounded text-center text-sm focus:border-blue-500 outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div class="flex justify-between items-center bg-white p-2 rounded border border-slate-200">
+                        <input type="radio" name="color" id="c-blue" value="#3b82f6" class="color-radio hidden" checked>
+                        <label for="c-blue" class="w-5 h-5 rounded-full bg-blue-500 cursor-pointer" title="藍色"></label>
+                        <input type="radio" name="color" id="c-green" value="#10b981" class="color-radio hidden">
+                        <label for="c-green" class="w-5 h-5 rounded-full bg-emerald-500 cursor-pointer" title="綠色"></label>
+                        <input type="radio" name="color" id="c-red" value="#ef4444" class="color-radio hidden">
+                        <label for="c-red" class="w-5 h-5 rounded-full bg-red-500 cursor-pointer" title="紅色"></label>
+                        <input type="radio" name="color" id="c-orange" value="#f97316" class="color-radio hidden">
+                        <label for="c-orange" class="w-5 h-5 rounded-full bg-orange-500 cursor-pointer" title="橘色"></label>
+                        <input type="radio" name="color" id="c-purple" value="#a855f7" class="color-radio hidden">
+                        <label for="c-purple" class="w-5 h-5 rounded-full bg-purple-500 cursor-pointer" title="紫色"></label>
+                        <input type="radio" name="color" id="c-dark" value="#475569" class="color-radio hidden">
+                        <label for="c-dark" class="w-5 h-5 rounded-full bg-slate-600 cursor-pointer" title="灰色"></label>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <textarea id="input-note" placeholder="備註事項 (選填)..." class="w-full p-2 border border-slate-300 rounded text-sm h-12 resize-none focus:border-blue-500 outline-none"></textarea>
+                </div>
+
+                <button id="submit-btn" onclick="saveTask()" class="w-full bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-white py-2.5 rounded-lg text-sm font-bold transition shadow-md flex justify-center items-center gap-2">
+                    <span>➕ 加入清單</span>
+                </button>
+            </div>
+
+            <div class="flex-1 flex flex-col overflow-hidden bg-white">
+                <div class="p-3 border-b bg-slate-50 flex justify-between items-center">
+                    <h3 class="text-sm font-bold text-slate-600">📋 待排程清單</h3>
+                    <select id="filter-category" onchange="renderList()" class="text-xs border border-slate-300 rounded px-2 py-1 bg-white text-slate-600">
+                        <option value="all">全部顯示</option>
+                        <option value="可安排">✅ 可安排</option>
+                        <option value="等待現場">⏳ 等待現場</option>
+                        <option value="事先拆除">🔨 事先拆除</option>
+                        <option value="維修件">🔧 維修件</option>
+                    </select>
+                </div>
+                
+                <div id="external-events" class="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-100">
+                    </div>
+            </div>
+            
+            <div class="p-2 border-t bg-slate-50 text-center">
+                <button onclick="clearAllData()" class="text-xs text-gray-400 hover:text-red-600 transition underline">
+                    ⚠️ 清除所有資料重新開始
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col h-full overflow-hidden bg-white relative">
+            <div class="print-only-header">工程排程總表</div>
+            <div class="flex-1 p-4 overflow-auto">
+                <div id='calendar' class="h-full min-h-[600px]"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 初始化與全域變數
+        // ==========================================
+        const STORAGE_KEY = 'my_schedule_v3'; 
+        let jobs = []; 
+        let calendar;  
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+            updateCountdown();
+            initCalendar();
+            renderList();
+        });
+
+        // ==========================================
+        // 2. 核心功能：存取資料 (LocalStorage)
+        // ==========================================
+        function loadData() {
+            const json = localStorage.getItem(STORAGE_KEY);
+            if (json) jobs = JSON.parse(json);
+        }
+
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs));
+        }
+
+        // ==========================================
+        // 3. 核心功能：新增與編輯
+        // ==========================================
+        function saveTask() {
+            const idInput = document.getElementById('input-id');
+            const titleInput = document.getElementById('input-title');
+            
+            const title = titleInput.value.trim();
+            const category = document.getElementById('input-category').value;
+            const days = document.getElementById('input-days').value;
+            const workers = document.getElementById('input-workers').value;
+            const note = document.getElementById('input-note').value;
+            const color = document.querySelector('input[name="color"]:checked').value;
+
+            if (!title) {
+                alert("⚠️ 請務必輸入「案件名稱」！");
+                titleInput.focus();
+                return;
+            }
+
+            if (idInput.value) {
+                // --- 編輯舊資料 ---
+                const index = jobs.findIndex(j => j.id === idInput.value);
+                if (index !== -1) {
+                    jobs[index].title = title;
+                    jobs[index].category = category;
+                    jobs[index].days = days;
+                    jobs[index].workers = workers;
+                    jobs[index].note = note;
+                    jobs[index].color = color;
+
+                    if (jobs[index].status === 'scheduled') {
+                        let event = calendar.getEventById(jobs[index].id);
+                        if (event) {
+                            event.setProp('title', title);
+                            event.setProp('backgroundColor', color);
+                            event.setProp('borderColor', color);
+                            event.setExtendedProp('workers', workers);
+                            event.setExtendedProp('note', note);
+                        }
+                    }
+                }
+                resetForm();
+            } else {
+                // --- 新增新資料 ---
+                const newJob = {
+                    id: 'job_' + Date.now(),
+                    title: title,
+                    category: category,
+                    days: days,
+                    workers: workers,
+                    note: note,
+                    color: color,
+                    status: 'pending',
+                    start: null,
+                    end: null
+                };
+                jobs.push(newJob);
+            }
+
+            saveData();
+            renderList();
+            
+            if (!idInput.value) {
+                titleInput.value = '';
+                titleInput.focus();
+            }
+        }
+
+        function deleteTask(id) {
+            if (confirm("確定要永久刪除這個案件嗎？")) {
+                jobs = jobs.filter(j => j.id !== id);
+                let event = calendar.getEventById(id);
+                if (event) event.remove();
+                
+                saveData();
+                renderList();
+                if(document.getElementById('input-id').value === id) resetForm();
+            }
+        }
+
+        function clearAllData() {
+            if(confirm("⛔ 危險操作\n\n這會刪除所有已排程與未排程的資料，且無法復原。\n確定要清空嗎？")) {
+                localStorage.removeItem(STORAGE_KEY);
+                location.reload();
+            }
+        }
+
+        // ==========================================
+        // 4. 介面功能：清單渲染與表單控制
+        // ==========================================
+        function renderList() {
+            const container = document.getElementById('external-events');
+            const filterVal = document.getElementById('filter-category').value;
+            
+            container.innerHTML = '';
+
+            const filteredJobs = jobs.filter(j => {
+                const isPending = j.status === 'pending';
+                const isMatchFilter = filterVal === 'all' || j.category === filterVal;
+                return isPending && isMatchFilter;
+            });
+
+            if (filteredJobs.length === 0) {
+                container.innerHTML = `<div class="text-center mt-8 text-gray-400 text-xs">
+                    <p>沒有待排程案件</p>
+                    <p class="mt-1">請在上方新增 👆</p>
+                </div>`;
+                return;
+            }
+
+            filteredJobs.forEach(job => {
+                const el = document.createElement('div');
+                el.className = 'draggable-source bg-white p-3 rounded-lg shadow-sm border border-slate-200 mb-2 group relative';
+                el.style.borderLeftColor = job.color;
+                el.dataset.id = job.id;
+                
+                let badgeColor = 'bg-gray-100 text-gray-600';
+                if(job.category === '可安排') badgeColor = 'bg-blue-50 text-blue-600 border border-blue-100';
+                else if(job.category === '等待現場') badgeColor = 'bg-yellow-50 text-yellow-600 border border-yellow-100';
+                else if(job.category === '事先拆除') badgeColor = 'bg-red-50 text-red-600 border border-red-100';
+                
+                el.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="w-full pr-6 cursor-pointer" onclick="loadIntoForm('${job.id}')" title="點擊可編輯">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="text-[10px] px-1.5 py-0.5 rounded ${badgeColor}">${job.category}</span>
+                            </div>
+                            <div class="font-bold text-slate-800 text-sm leading-tight mb-1">${job.title}</div>
+                            <div class="text-xs text-slate-500 flex gap-3">
+                                <span class="flex items-center">⏳ ${job.days}天</span>
+                                <span class="flex items-center">👷 ${job.workers}人</span>
+                            </div>
+                            ${job.note ? `<div class="text-[10px] text-gray-400 mt-1 border-t pt-1 truncate">📝 ${job.note}</div>` : ''}
+                        </div>
+                        <button onclick="event.stopPropagation(); deleteTask('${job.id}')" 
+                                class="absolute top-2 right-2 text-gray-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition">
+                            ✕
+                        </button>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+
+            new FullCalendar.Draggable(container, {
+                itemSelector: '.draggable-source',
+                eventData: function(eventEl) {
+                    const id = eventEl.dataset.id;
+                    const job = jobs.find(j => j.id === id);
+                    return {
+                        id: job.id,
+                        title: job.title,
+                        duration: { days: parseFloat(job.days) },
+                        backgroundColor: job.color,
+                        borderColor: job.color,
+                        extendedProps: {
+                            workers: job.workers,
+                            note: job.note,
+                            category: job.category
+                        }
+                    };
+                }
+            });
+        }
+
+        function loadIntoForm(id) {
+            const job = jobs.find(j => j.id === id);
+            if (!job) return;
+
+            document.getElementById('input-id').value = job.id;
+            document.getElementById('input-title').value = job.title;
+            document.getElementById('input-category').value = job.category;
+            document.getElementById('input-days').value = job.days;
+            document.getElementById('input-workers').value = job.workers;
+            document.getElementById('input-note').value = job.note || '';
+            
+            const colorRadio = document.querySelector(`input[name="color"][value="${job.color}"]`);
+            if(colorRadio) colorRadio.checked = true;
+
+            document.getElementById('form-container').classList.add('editing-mode');
+            document.getElementById('form-title').innerHTML = `<span class="text-orange-600">✏️ 編輯中...</span>`;
+            document.getElementById('submit-btn').innerHTML = `<span>💾 確認修改</span>`;
+            document.getElementById('submit-btn').className = "w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg text-sm font-bold transition shadow-md";
+            document.getElementById('cancel-edit-btn').classList.remove('hidden');
+            document.getElementById('input-title').focus();
+        }
+
+        function resetForm() {
+            document.getElementById('input-id').value = '';
+            document.getElementById('input-title').value = '';
+            document.getElementById('input-note').value = '';
+            
+            document.getElementById('form-container').classList.remove('editing-mode');
+            document.getElementById('form-title').innerHTML = `✏️ 新增案件資料`;
+            document.getElementById('submit-btn').innerHTML = `<span>➕ 加入清單</span>`;
+            document.getElementById('submit-btn').className = "w-full bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-lg text-sm font-bold transition shadow-md";
+            document.getElementById('cancel-edit-btn').classList.add('hidden');
+        }
+
+        // ==========================================
+        // 5. FullCalendar 設定
+        // ==========================================
+        function initCalendar() {
+            const calendarEl = document.getElementById('calendar');
+            
+            const initialEvents = jobs
+                .filter(j => j.status === 'scheduled')
+                .map(j => ({
+                    id: j.id,
+                    title: j.title,
+                    start: j.start,
+                    end: j.end,
+                    allDay: true,
+                    backgroundColor: j.color,
+                    borderColor: j.color,
+                    extendedProps: {
+                        workers: j.workers,
+                        note: j.note,
+                        category: j.category
+                    }
+                }));
+
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek'
+                },
+                initialView: 'dayGridMonth',
+                locale: 'zh-tw',
+                editable: true,
+                droppable: true,
+                height: '100%',
+                events: initialEvents,
+
+                // 1. 接收拖曳 (已修正重複出現案件問題)
+                eventReceive: function(info) {
+                    const id = info.event.id;
+                    const job = jobs.find(j => j.id === id);
+                    
+                    if (job) {
+                        job.status = 'scheduled';
+                        job.start = info.event.startStr;
+                        job.end = info.event.endStr;
+                        
+                        saveData();
+
+                        // 關鍵修正：強制移除左側清單中被拖曳的原始 DOM 元素
+                        if (info.draggedEl) {
+                            info.draggedEl.remove();
+                        }
+                        
+                        renderList(); // 重新繪製清單，確保狀態正確
+                    } else {
+                        info.event.remove();
+                        alert('錯誤：拖曳的案件在資料庫中找不到，已移除該排程事件。請檢查清單。');
+                    }
+                },
+
+                // 2. 移動/縮放
+                eventChange: function(info) {
+                    const id = info.event.id;
+                    const job = jobs.find(j => j.id === id);
+                    if (job) {
+                        job.start = info.event.startStr;
+                        job.end = info.event.endStr;
+                        saveData();
+                    }
+                },
+
+                // 3. 點擊事件 (退回/刪除)
+                eventClick: function(info) {
+                    const action = prompt(
+                        `【${info.event.title}】\n----------------\n備註：${info.event.extendedProps.note || '無'}\n\n請選擇動作：\n1. ⏪ 退回待辦清單\n2. 🗑️ 永久刪除`, 
+                        "1"
+                    );
+                    
+                    if (action === '1') {
+                        const id = info.event.id;
+                        const job = jobs.find(j => j.id === id);
+                        if (job) {
+                            job.status = 'pending';
+                            job.start = null;
+                            job.end = null;
+                            saveData();
+                            info.event.remove();
+                            renderList();
+                        }
+                    } else if (action === '2') {
+                        deleteTask(info.event.id);
+                    }
+                },
+
+                // 4. 自訂顯示內容
+                eventContent: function(arg) {
+                    const workers = arg.event.extendedProps.workers || '?';
+                    let dayCount = 1;
+                    if (arg.event.end && arg.event.start) {
+                        dayCount = (arg.event.end - arg.event.start) / (1000 * 60 * 60 * 24);
+                        dayCount = Math.round(dayCount * 10) / 10;
+                    }
+                    return { 
+                        html: `
+                        <div class="px-1 py-0.5 text-xs overflow-hidden leading-tight">
+                             <div class="font-bold truncate text-shadow">${arg.event.title}</div>
+                             <div class="flex justify-between opacity-90 mt-0.5 text-[10px]">
+                                <span>👷${workers}</span>
+                                <span>⏳${dayCount}</span>
+                             </div>
+                        </div>` 
+                    }
+                }
+            });
+            calendar.render();
+        }
+
+        // ==========================================
+        // 6. 倒數計時
+        // ==========================================
+        function updateCountdown() {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const targetDate = new Date('2026-02-17T00:00:00');
+            
+            let workDays = 0;
+            let tempDate = new Date(today);
+
+            if (tempDate >= targetDate) {
+                document.getElementById('countdown-days').innerText = "0";
+                return;
+            }
+            while (tempDate < targetDate) {
+                tempDate.setDate(tempDate.getDate() + 1);
+                const dayOfWeek = tempDate.getDay();
+                if (dayOfWeek !== 0) workDays++;
+            }
+            document.getElementById('countdown-days').innerText = workDays;
+        }
+    </script>
+</body>
+</html>
