@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>排單管理系統 V38 (UI可視化優化)</title>
+<title>排單管理系統 V40 (修復週日排除與工期)</title>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <style>
@@ -26,7 +26,7 @@
   
   /* 右側行事曆區 */
   #calendar-wrap { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; background: white;}
-  #calendar { flex: 1; padding: 12px; }
+  #calendar { flex: 1; padding: 12px; overflow: hidden; }
 
   /* 雲端狀態燈 */
   #cloud-status { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 12px; background: #f1f3f4; color: #5f6368; float:right;}
@@ -77,7 +77,6 @@
   }
   .pending-card:hover { box-shadow: 0 4px 8px rgba(60,64,67,0.15); }
   
-  /* 側邊欄拖曳把手 (只在側邊欄顯示) */
   .card-handle {
       width: 24px; background: #f8f9fa; border-right: 1px solid #eee;
       display: flex; align-items: center; justify-content: center;
@@ -92,47 +91,29 @@
   .del-btn-card:hover { color: #d93025; }
 
   /* --- 4. 行事曆內事件樣式 (Google Calendar Style) --- */
-  /* 覆蓋 FullCalendar 預設 */
   .fc-h-event { border: none !important; background: transparent !important; }
   .fc-event-main { padding: 0 !important; }
   
-  /* 自定義行事曆事件方塊 */
   .google-event {
-    width: 100%; height: 100%;
-    padding: 1px 4px;
-    border-radius: 4px;
-    display: flex; 
-    align-items: center;
-    overflow: hidden;
-    font-family: "Roboto", sans-serif;
+    width: 100%; height: 100%; padding: 1px 4px; border-radius: 4px;
+    display: flex; align-items: center; overflow: hidden; font-family: "Roboto", sans-serif;
     box-shadow: 0 1px 1px rgba(0,0,0,0.1);
   }
-  
-  /* 案名：強制不換行，空間不足顯示...，彈性佔滿剩餘空間 */
   .g-title {
-    font-weight: 700; /* 加粗 */
-    font-size: 12.5px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1; /* 佔滿空間 */
-    min-width: 0; /* Flexbox 縮小關鍵 */
-    line-height: 1.4;
+    font-weight: 700; font-size: 12.5px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; flex: 1; min-width: 0; line-height: 1.4;
   }
-  
-  /* Meta 資訊：靠右，空間不足時自動被擠出去 */
-  .g-meta {
-    font-size: 11px;
-    opacity: 0.9;
-    margin-left: 4px;
-    white-space: nowrap;
-    flex-shrink: 0; /* 盡量不縮小，但如果沒空間會被 title 擠壓 */
-    font-weight: 400;
-  }
+  .g-meta { font-size: 11px; opacity: 0.9; margin-left: 4px; white-space: nowrap; flex-shrink: 0; font-weight: 400; }
 
-  /* 頂部面板 */
-  #top-panel { position: absolute; top: 12px; right: 60px; z-index: 100; display: flex; align-items: center; gap: 10px; background:white; padding: 4px 10px; border-radius: 20px; border: 1px solid #dadce0;}
-  #countdown_date { border:none; color: #5f6368; font-family: inherit; cursor: pointer;}
+  /* --- 修正：頂部面板 (固定位置) --- */
+  #top-panel { 
+    display: flex; align-items: center; gap: 10px; 
+    background: white; padding: 10px 16px; 
+    border-bottom: 1px solid #dadce0;
+    flex-shrink: 0; justify-content: flex-start;
+  }
+  .countdown-wrap { display: flex; align-items: center; gap: 8px; background: #f1f3f4; padding: 4px 12px; border-radius: 18px; }
+  #countdown_date { border:none; color: #5f6368; font-family: inherit; cursor: pointer; background: transparent; height: auto; padding: 0;}
   #countdown_output { font-weight: 600; color: var(--primary-color); }
 
   /* FullCalendar Header 優化 */
@@ -191,21 +172,13 @@
     .fc-toolbar-title { font-size: 18px !important; }
     
     #fab { display: flex; }
-    #top-panel { top: auto; bottom: 85px; right: 20px; border:none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background: rgba(255,255,255,0.9); }
+    
+    /* 手機版頂部面板 */
+    #top-panel { padding: 8px 10px; justify-content: center; border-bottom: 1px solid #eee; }
 
     /* 手機版事件顯示優化 */
-    .google-event {
-        padding: 1px 3px;
-        min-height: 18px; /* 稍微增加高度 */
-    }
-    
-    /* 手機版字體調整 */
-    .g-title { 
-        font-size: 12px; 
-        font-weight: 600; /* 手機版不需要太粗，清楚即可 */
-    }
-    
-    /* 手機版隱藏 Meta，只顯示標題以節省空間 */
+    .google-event { padding: 1px 3px; min-height: 18px; }
+    .g-title { font-size: 12px; font-weight: 600; }
     .g-meta { display: none; }
    }
 </style>
@@ -216,7 +189,7 @@
 <div id="mobile-overlay" onclick="toggleSidebar()"></div>
 
 <div id="sidebar">
-  <h2> 排單系統 V38 <span id="cloud-status">連線中...</span></h2>
+  <h2> 排單系統 V40 <span id="cloud-status">連線中...</span></h2>
 
   <div id="date-click-hint" style="display:none;" onclick="cancelDirectSchedule()"></div>
 
@@ -288,9 +261,6 @@
 </div>
 
 <script type="module">
-// ------------------------------------------------
-// 1. Firebase 初始化
-// ------------------------------------------------
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
@@ -364,9 +334,6 @@ window.saveToCloud = async function() {
 </script>
 
 <script>
-// ------------------------------------------------
-// 2. 邏輯控制
-// ------------------------------------------------
 const COLORS = ['#1a73e8', '#188038', '#d93025', '#f6bf26', '#8e24aa', '#e37400']; // Google Colors
 let curColor = COLORS[0], editCurColor = COLORS[0]; 
 let calendarAPI, sortableInstance;
@@ -448,20 +415,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
         
-        // ★★★ V38 核心 UI 優化：Google Calendar 風格渲染 ★★★
         eventContent: (arg) => {
             let p = arg.event.extendedProps;
             let bgColor = arg.event.backgroundColor;
-            // 黃色背景時文字變黑，其他變白
             let textColor = (bgColor === '#f6bf26') ? '#3c4043' : 'white';
             
-            // 行事曆顯示：極簡化，使用 Flex 讓標題最大化
             let html = `
             <div class="google-event" style="background:${bgColor}; color:${textColor}">
                 <div class="g-title">${arg.event.title}</div>
                 <div class="g-meta">${p.ppl||1}人</div>
             </div>`;
-            
             return { html: html };
         },
 
@@ -518,9 +481,22 @@ window.updateCountdown = function(isWrite = false) {
     output.textContent = (diff >= 0) ? `${d}天` : `過${Math.ceil(Math.abs(diff)/86400000)}天`;
 }
 
+// ★★★ V40 核心修復：排除週日 + 正確計算工期 (解決2天變1天問題) ★★★
 function calculateEndDate(startDateStr, days) {
     let date = new Date(startDateStr);
-    date.setDate(date.getDate() + days);
+    let count = 0;
+    
+    while (count < days) {
+        // 如果遇到週日 (0)，只加日期，不加計數 (跳過週日)
+        if (date.getDay() === 0) {
+            date.setDate(date.getDate() + 1);
+            continue; 
+        }
+        // 平日/週六：加日期，加計數
+        date.setDate(date.getDate() + 1);
+        count++;
+    }
+    
     return date.toISOString().split('T')[0];
 }
 
@@ -534,6 +510,7 @@ function cancelDirectSchedule(closeSidebar = true) {
 
 function schedulePendingItem(item) {
     if (!selectedDate) return; 
+    // 使用 V40 的 calculateEndDate 確保跳過週日
     calendarAPI.addEvent({
         id: 'evt_' + item.id, title: item.title, start: selectedDate,
         end: calculateEndDate(selectedDate, item.days), allDay: true,
@@ -549,11 +526,12 @@ function addEvent() {
     let title = document.getElementById('t_title').value.trim();
     if(!title) return alert('請輸入案名');
     
+    let days = parseInt(document.getElementById('t_days').value) || 1;
     let eventData = {
         id: 'p_' + Date.now(), title: title,
         cat: document.getElementById('t_cat').value,
         note: document.getElementById('t_note').value,
-        days: parseInt(document.getElementById('t_days').value) || 1,
+        days: days,
         ppl: parseInt(document.getElementById('t_ppl').value) || 1,
         color: curColor
     };
@@ -688,6 +666,7 @@ function confirmUpdate() {
         editObj.setProp('title', title); editObj.setProp('backgroundColor', editCurColor); editObj.setProp('borderColor', editCurColor);
         editObj.setExtendedProp('cat', cat); editObj.setExtendedProp('note', note);
         editObj.setExtendedProp('days', days); editObj.setExtendedProp('ppl', ppl);
+        // 更新時也套用週日排除邏輯
         if(editObj.start && days >= 1) editObj.setEnd(calculateEndDate(editObj.startStr, days));
         window.saveToCloud();
     } else {
