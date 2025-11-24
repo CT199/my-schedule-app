@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>排單管理系統 V40 (修復週日排除與工期)</title>
+<title>排單管理系統 V41 (修復拖曳天數)</title>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <style>
@@ -105,7 +105,7 @@
   }
   .g-meta { font-size: 11px; opacity: 0.9; margin-left: 4px; white-space: nowrap; flex-shrink: 0; font-weight: 400; }
 
-  /* --- 修正：頂部面板 (固定位置) --- */
+  /* --- 頂部面板 (固定位置) --- */
   #top-panel { 
     display: flex; align-items: center; gap: 10px; 
     background: white; padding: 10px 16px; 
@@ -189,7 +189,7 @@
 <div id="mobile-overlay" onclick="toggleSidebar()"></div>
 
 <div id="sidebar">
-  <h2> 排單系統 V40 <span id="cloud-status">連線中...</span></h2>
+  <h2> 排單系統 V41 <span id="cloud-status">連線中...</span></h2>
 
   <div id="date-click-hint" style="display:none;" onclick="cancelDirectSchedule()"></div>
 
@@ -353,14 +353,22 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (!isMobile()) { 
+        // ★★★ V41 修復：加上 duration 屬性，讓拖曳時能帶入天數 ★★★
         new FullCalendar.Draggable(listEl, {
             itemSelector: '.pending-card',
             eventData: (el) => {
                 let id = el.getAttribute('data-id');
                 let item = window.pendingList.find(x => x.id === id);
+                let d = item.days || 1;
+                // 注意：這裡先傳給 FullCalendar 基本天數，
+                // 但為了週日排除邏輯，我們在 eventReceive 會重新計算準確結束日期
                 return {
-                    id: 'evt_' + item.id, title: item.title, backgroundColor: item.color, borderColor: item.color,
-                    extendedProps: { sid: item.id, cat: item.cat, note: item.note, days: item.days, ppl: item.ppl }
+                    id: 'evt_' + item.id, 
+                    title: item.title, 
+                    backgroundColor: item.color, 
+                    borderColor: item.color,
+                    duration: { days: d }, // 關鍵修復：告訴行事曆這是幾天的事件
+                    extendedProps: { sid: item.id, cat: item.cat, note: item.note, days: d, ppl: item.ppl }
                 };
             }
         });
@@ -389,9 +397,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if(isMobile()) toggleSidebar();
         },
         
+        // ★★★ V41 修復：拖曳放下時，強制套用「排除週日」的日期計算 ★★★
         eventReceive: (info) => {
+            let p = info.event.extendedProps;
+            let startStr = info.event.startStr;
+            let days = p.days || 1;
+            
+            // 重新計算正確的結束日期 (跳過週日)
+            let correctEnd = calculateEndDate(startStr, days);
+            info.event.setEnd(correctEnd);
+
             if(!info.event.id) info.event.setProp('id', 'evt_' + Date.now());
-            removePending(info.event.extendedProps.sid); 
+            removePending(p.sid); 
             window.saveToCloud();
         },
         eventChange: (info) => window.saveToCloud(),
@@ -481,22 +498,25 @@ window.updateCountdown = function(isWrite = false) {
     output.textContent = (diff >= 0) ? `${d}天` : `過${Math.ceil(Math.abs(diff)/86400000)}天`;
 }
 
-// ★★★ V40 核心修復：排除週日 + 正確計算工期 (解決2天變1天問題) ★★★
+// ★★★ V41 核心演算法：計算結束日期 (排除週日) ★★★
 function calculateEndDate(startDateStr, days) {
     let date = new Date(startDateStr);
-    let count = 0;
+    let addedDays = 0;
     
-    while (count < days) {
-        // 如果遇到週日 (0)，只加日期，不加計數 (跳過週日)
-        if (date.getDay() === 0) {
-            date.setDate(date.getDate() + 1);
-            continue; 
-        }
-        // 平日/週六：加日期，加計數
+    while (addedDays < days) {
+        // 先加一天
         date.setDate(date.getDate() + 1);
-        count++;
+        
+        // 如果加完後是週日，這個週日不計入工期 (addedDays 不增加)，但日期已經往後推了
+        if (date.getDay() === 0) {
+            continue;
+        }
+        
+        // 是工作日 (週一到週六)，計入工期
+        addedDays++;
     }
     
+    // 回傳給 FullCalendar 的結束日期 (它是 Exclusive 的，所以這裡的 date 剛好是最後一天的隔天凌晨)
     return date.toISOString().split('T')[0];
 }
 
@@ -510,7 +530,6 @@ function cancelDirectSchedule(closeSidebar = true) {
 
 function schedulePendingItem(item) {
     if (!selectedDate) return; 
-    // 使用 V40 的 calculateEndDate 確保跳過週日
     calendarAPI.addEvent({
         id: 'evt_' + item.id, title: item.title, start: selectedDate,
         end: calculateEndDate(selectedDate, item.days), allDay: true,
